@@ -6,6 +6,7 @@ This module contains the primary objects that power Requests.
 """
 
 from __future__ import annotations
+from email.utils import parsedate_to_datetime
 
 import datetime
 
@@ -872,6 +873,38 @@ class Response:
         except HTTPError:
             return False
         return True
+
+    @property
+    def retry_after(self) -> float | None:
+        """Return the value of the Retry-After header as seconds, if any."""
+
+        header = self.headers.get("retry-after")
+        if not header:
+            return None
+
+        value = header.strip()
+        if not value:
+            return None
+
+        if value.isdigit():
+            return float(value)
+
+        try:
+            retry_at = parsedate_to_datetime(value)
+        except (TypeError, ValueError, IndexError, OverflowError):
+            return None
+
+        if retry_at.tzinfo is None:
+            retry_at = retry_at.replace(tzinfo=datetime.timezone.utc)
+
+        now = datetime.datetime.now(datetime.timezone.utc)
+        delay = (retry_at - now).total_seconds()
+
+        if delay <= 0:
+            return 0.0
+
+        return float(delay)
+
 
     @property
     def is_redirect(self) -> bool:
