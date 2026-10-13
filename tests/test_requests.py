@@ -2,6 +2,7 @@
 
 import collections
 import contextlib
+import datetime
 import io
 import json
 import os
@@ -10,6 +11,7 @@ import re
 import tempfile
 import threading
 import warnings
+from email.utils import format_datetime
 from unittest import mock
 
 import pytest
@@ -1294,6 +1296,47 @@ class TestRequests:
             "x-ratelimit-remaining": "57",
         }
         assert r.links["next"]["rel"] == "next"
+
+    @pytest.mark.parametrize(
+        "header_value",
+        (None, "", "   ", "-1", "1.5", "not-a-retry-delay", "tomorrow"),
+    )
+    def test_retry_after_invalid_values(self, header_value):
+        r = requests.Response()
+        if header_value is not None:
+            r.headers["Retry-After"] = header_value
+
+        assert r.retry_after is None
+
+    def test_retry_after_delta_seconds(self):
+        r = requests.Response()
+        r.headers["Retry-After"] = "10"
+
+        assert r.retry_after == 10.0
+
+    def test_retry_after_http_date_in_the_future(self):
+        r = requests.Response()
+        retry_at = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(
+            seconds=60
+        )
+        r.headers["Retry-After"] = format_datetime(retry_at, usegmt=True)
+
+        assert 50.0 <= r.retry_after <= 60.0
+
+    def test_retry_after_http_date_in_the_past(self):
+        r = requests.Response()
+        retry_at = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+            seconds=60
+        )
+        r.headers["Retry-After"] = format_datetime(retry_at, usegmt=True)
+
+        assert r.retry_after == 0.0
+
+    def test_retry_after_header_lookup_is_case_insensitive(self):
+        r = requests.Response()
+        r.headers["rEtRy-AfTeR"] = "10"
+
+        assert r.retry_after == 10.0
 
     def test_cookie_parameters(self):
         key = "some_cookie"
